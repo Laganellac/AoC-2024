@@ -3,6 +3,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <unordered_map>
 #include <vector>
 
 int main(int argc, char **argv) {
@@ -47,5 +48,25 @@ int main(int argc, char **argv) {
         distance += std::abs(list2[i] - list1[i]);
     }
     std::cout << "The total distance is " << distance << std::endl;
+    // Compute the similarity
+    std::unordered_map<int, int> list2_counts;
+    list2_counts.reserve(N);
+    for(const auto value : list2) {
+        auto itr = list2_counts.find(value);
+        if(itr == list2_counts.end()) {
+            list2_counts.insert({value, 1});
+        }
+        else {
+            itr->second++;
+        }
+    }
+    uint64_t similarity = 0;
+    for(const auto value : list1) {
+        auto itr = list2_counts.find(value);
+        if(itr != list2_counts.end()) {
+            similarity += value * itr->second;
+        }
+    }
+    std::cout << "The total similarity score is " << similarity << std::endl;
     return 0;
 }
