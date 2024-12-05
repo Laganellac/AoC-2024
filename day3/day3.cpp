@@ -10,21 +10,21 @@
 class MemoryParser {
 public:
     MemoryParser()
-        : sum(0), x(0), state(STATE_NONE), digits(), digits_read(0)
+        : sum(0), x(0), mode(STATE_DO), state(mode), digits(), digits_read(0),
+            instruction_chars()
     {
-        memset(digits.data(), 0, sizeof(char) * 4);
+        memset(digits.data(), 0, sizeof(char) * digits.size());
+        memset(instruction_chars.data(), 0, sizeof(char) * instruction_chars.size());
     }
 
     uint64_t execute(std::istream &input);
 
 protected:
     enum State {
-        STATE_NONE,
-        STATE_M,
-        STATE_MU,
-        STATE_MUL,
+        STATE_DO,
         STATE_MULP,
-        STATE_MULPNC
+        STATE_MULPNC,
+        STATE_DONT
     };
 
     // Converts the given character to its escape sequence it's not printable
@@ -33,6 +33,12 @@ protected:
     static std::string to_string(State s);
 
     void debug_print_state(char c) const;
+
+    // Look for a do() or mul() command
+    void handle_do(char c);
+
+    // Look for a do() command
+    void handle_dont(char c);
 
     // Parse the 3-digit number, 3-digit number part of the the mul(X, Y) instruction
     void handle_mulp_mulpnc(char c);
@@ -43,11 +49,16 @@ protected:
     // Resets the internal state machine
     void reset();
 
+    // Sets the mode to STATE_DO or STATE_DONT
+    void set_mode(State m);
+
     uint64_t sum;
     uint32_t x;
+    State mode;
     State state;
     std::array<char, 4> digits;
     uint32_t digits_read;
+    std::array<char, 8> instruction_chars;
 };
 
 // Parsen the given stream of memory and return the sum
@@ -64,24 +75,15 @@ MemoryParser::execute(std::istream &input) {
         input >> c;
         debug_print_state(c);
         switch(state) {
-            case STATE_NONE:
-                if(c == 'm') state = STATE_M;
-                break;
-            case STATE_M:
-                if(c == 'u') state = STATE_MU;
-                else reset();
-                break;
-            case STATE_MU:
-                if(c == 'l') state = STATE_MUL;
-                else reset();
-                break;
-            case STATE_MUL:
-                if(c == '(') state = STATE_MULP;
-                else reset();
+            case STATE_DO:
+                handle_do(c);
                 break;
             case STATE_MULP: // Fallthrough
             case STATE_MULPNC:
                 handle_mulp_mulpnc(c);
+                break;
+            case STATE_DONT:
+                handle_dont(c);
                 break;
         }
     }
@@ -109,23 +111,17 @@ std::string
 MemoryParser::to_string(State s) {
     std::string ss;
     switch(s) {
-        case STATE_NONE:
-            ss = "STATE_NONE";
-            break;
-        case STATE_M:
-            ss = "STATE_M";
-            break;
-        case STATE_MU:
-            ss = "STATE_MU";
-            break;
-        case STATE_MUL:
-            ss = "STATE_MUL";
+        case STATE_DO:
+            ss = "STATE_DO";
             break;
         case STATE_MULP:
             ss = "STATE_MULP";
             break;
         case STATE_MULPNC:
             ss = "STATE_MULPNC";
+            break;
+        case STATE_DONT:
+            ss = "STATE_DONT";
             break;
     }
     return ss;
@@ -140,7 +136,91 @@ MemoryParser::debug_print_state(char c) const {
         << "\n    \"state\": \"" << to_string(state)
         << "\"\n    \"digits\": \"" << digits.data()
         << "\"\n    \"digits_read\": " << digits_read
-        << "\n}" << std::endl;
+        << "\n    \"instruction_chars\": \"" << instruction_chars.data()
+        << "\"\n}" << std::endl;
+}
+
+void
+MemoryParser::handle_do(char c) {
+    switch(c) {
+        case 'd':
+            if(instruction_chars[0] == 0) {
+                instruction_chars[0] = 'd';
+            }
+            break;
+        case 'o':
+            if(instruction_chars[0] == 'd') {
+                instruction_chars[1] = 'o';
+            }
+            break;
+        case 'n':
+            if(instruction_chars[1] == 'o') {
+                instruction_chars[2] = 'n';
+            }
+            break;
+        case '\'':
+            if(instruction_chars[2] == 'n') {
+                instruction_chars[3] = '\'';
+            }
+            break;
+        case 't':
+            if(instruction_chars[3] == '\'') {
+                instruction_chars[4] = 't';
+            }
+            break;
+        case '(':
+            if(instruction_chars[4] == 't') {
+                instruction_chars[5] = '(';
+            }
+            else if(instruction_chars[2] == 'l') {
+                state = STATE_MULP;
+            }
+            break;
+        case ')':
+            if(instruction_chars[5] == '(') {
+                mode = STATE_DONT;
+                reset();
+            }
+            break;
+        case 'm':
+            if(instruction_chars[0] == 0) {
+                instruction_chars[0] = 'm';
+            }
+            break;
+        case 'u':
+            if(instruction_chars[0] == 'm') {
+                instruction_chars[1] = 'u';
+            }
+            break;
+        case 'l':
+            if(instruction_chars[1] == 'u') {
+                instruction_chars[2] = 'l';
+            }
+            break;
+        default:
+            reset();
+            break;
+    }
+}
+
+void
+MemoryParser::handle_dont(char c) {
+    if(c == 'd' && instruction_chars[0] == 0) {
+        instruction_chars[0] = 'd';
+    }
+    else if(c == 'o' && instruction_chars[0] == 'd') {
+        instruction_chars[1] = 'o';
+    }
+    else if(c == '(' && instruction_chars[1] == 'o') {
+        instruction_chars[2] = '(';
+    }
+    else if(c == ')' && instruction_chars[2] == '(') {
+        mode = STATE_DO;
+        reset();
+    }
+    else {
+        reset();
+    }
 }
 
 void
@@ -162,7 +242,7 @@ MemoryParser::handle_mulp_mulpnc(char c) {
     else if(c == ')' && digits_read > 0 && state == STATE_MULPNC) {
         uint32_t y = parse_digits();
         //std::cerr << "DEBUG: Read Y value " << y << std::endl;
-        sum += x * y;
+        sum += (uint64_t)x * (uint64_t)y;
         std::cerr << "DEBUG: " << x << " * " << y << " = " << x * y
             << " new sum = " << sum << std::endl;
         reset();
@@ -189,10 +269,12 @@ MemoryParser::parse_digits() {
 void
 MemoryParser::reset() {
     //std::cerr << "DEBUG: Resetting from state " << state << std::endl;
-    state = STATE_NONE;
+    assert(mode == STATE_DO || mode == STATE_DONT);
+    state = mode;
     x = 0;
-    memset(digits.data(), 0, sizeof(char) * 4);
+    memset(digits.data(), 0, sizeof(char) * digits.size());
     digits_read = 0;
+    memset(instruction_chars.data(), 0, sizeof(char) * instruction_chars.size());
 }
 
 int main(int argc, char **argv) {
